@@ -17,7 +17,7 @@
 ## 📜 Developer Notes: Why "Deterministic"?
 
 ### 1. Background: information volume and noise grow together
-The combination of falling copy-paste costs (digitization), faster amplification (social media), and large-scale summarization/generation (generative AI) means the total volume of information online keeps increasing. At the same time, the share of that volume made up of copy-paste, bot amplification, and unsubstantiated claims is also increasing. Spin control by companies or individuals (flooding a topic with information to shift the conversation) and coordinated bot-driven opinion manipulation are both techniques that exploit this growth in sheer volume.
+The combination of falling copy-paste costs (digitization), faster amplification (social media), and large-scale summarization/generation (generative AI) means the total volume of information online keeps increasing. At the same time, the share of that volume made up of copy-paste, bot amplification, and unsubstantiated claims is also increasing. Spin control by companies or individuals (flooding a topic with information to shift the conversation) and coordinated bot-driven opinion manipulation are both techniques that exploit this growth in sheer volume. This project was started to provide a practical technical approach to accurately extracting and filtering the true signal of text and data in response to these challenges of information overload and growing noise.
 
 ### 2. The problem: "summarization" doesn't solve this
 AI-generated "summarization" compresses information, but if the source material itself contains a lot of noise or bias, the summary inherits that bias. Summarization is also, by nature, a process of "generating a new sentence," which carries an inherent risk of hallucination.
@@ -29,7 +29,7 @@ Many existing implementations use an LLM directly to judge "is this true or not.
 
 So this project deliberately keeps LLMs and other probabilistic methods out of the decision-making core. Judgments are made entirely through graph theory (Tarjan's strongly connected components), set operations (n-gram Jaccard / overlap coefficient), and a deterministic scoring function based on the count of independent sources — so that a human can trace the entire decision path. This lets us explain "why this conclusion was reached" without going through any probabilistic internal state. (To be clear: being deterministic does not guarantee that the output is true. It is a design choice that guarantees the explainability of the decision process, not the correctness of its content.)
 
-`Sieve-Core` applies the thinking behind Sieve-AI — itself inspired by the Sieve of Eratosthenes — to the more general domain of text/data processing.
+`Sieve-Core` is the core engine that applies the design philosophy of "Sieve-AI"—a "sieve of set theory" inspired by the Sieve of Eratosthenes—to the more general domain of text and data processing.
 
 ---
 
