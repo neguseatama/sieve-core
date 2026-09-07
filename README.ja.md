@@ -5,9 +5,9 @@
 **決定論的な類似性・確信度検証エンジン(Explainable, General-Purpose)**  
 *デマ・Bot拡散の自動縮約と、多重ソース検証によるノイズ除去*
 
-[![PyPI Version](https://img.shields.io/pypi/v/sieve-scope.svg)](https://pypi.org/project/sieve-scope/)
-[![Python Version](https://img.shields.io/pypi/pyversions/sieve-scope.svg)](https://pypi.org/project/sieve-scope/)
-[![CI](https://github.com/neguseatama/sieve-scope/actions/workflows/test.yml/badge.svg)](https://github.com/neguseatama/sieve-scope/actions/workflows/test.yml)
+[![PyPI Version](https://img.shields.io/pypi/v/sieve-core-engine.svg)](https://pypi.org/project/sieve-core-engine/)
+[![Python Version](https://img.shields.io/pypi/pyversions/sieve-core-engine.svg)](https://pypi.org/project/sieve-core-engine/)
+[![CI](https://github.com/neguseatama/sieve-core/actions/workflows/test.yml/badge.svg)](https://github.com/neguseatama/sieve-core/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 <!-- 注: このバッジは、neguseatamaアカウント上でリポジトリ名が "sieve-core" であることを前提にしています。別の名前でリポジトリを作成する場合は、上記URLを合わせて変更してください。 -->
