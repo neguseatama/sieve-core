@@ -5,9 +5,9 @@
 **A deterministic similarity / confidence verification engine (Explainable, General-Purpose)**  
 *Deterministic collapsing of copy-paste and bot amplification, and noise reduction via multi-source corroboration*
 
-[![PyPI Version](https://img.shields.io/pypi/v/sieve-scope.svg)](https://pypi.org/project/sieve-scope/)
-[![Python Version](https://img.shields.io/pypi/pyversions/sieve-scope.svg)](https://pypi.org/project/sieve-scope/)
-[![CI](https://github.com/neguseatama/sieve-scope/actions/workflows/test.yml/badge.svg)](https://github.com/neguseatama/sieve-scope/actions/workflows/test.yml)
+[![PyPI Version](https://img.shields.io/pypi/v/sieve-core-engine.svg)](https://pypi.org/project/sieve-core-engine/)
+[![Python Version](https://img.shields.io/pypi/pyversions/sieve-core-engine.svg)](https://pypi.org/project/sieve-core-engine/)
+[![CI](https://github.com/neguseatama/sieve-core/actions/workflows/test.yml/badge.svg)](https://github.com/neguseatama/sieve-core/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 <!-- NOTE: this badge assumes the repo is named "sieve-core" under the neguseatama account. If you name the repo something else on GitHub, update the URL above to match. -->
