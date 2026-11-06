@@ -1,4 +1,4 @@
-# Sieve-Core (v1.0.0-MVP)
+# Sieve-Core (v1.1.0-MVP)
 
 **English | [日本語](./README.ja.md)**
 
@@ -27,7 +27,7 @@ This project instead focuses on "extraction": rather than generating new sentenc
 ### 3. Design decision: LLMs are not the decision-maker
 Many existing implementations use an LLM directly to judge "is this true or not." But since an LLM can itself hallucinate, putting the LLM at the center of that judgment creates a fundamental contradiction.
 
-So this project deliberately keeps LLMs and other probabilistic methods out of the decision-making core. Judgments are made entirely through graph theory (Tarjan's strongly connected components), set operations (n-gram Jaccard / overlap coefficient), and a deterministic scoring function based on the count of independent sources — so that a human can trace the entire decision path. This lets us explain "why this conclusion was reached" without going through any probabilistic internal state. (To be clear: being deterministic does not guarantee that the output is true. It is a design choice that guarantees the explainability of the decision process, not the correctness of its content.)
+So this project deliberately keeps LLMs and other probabilistic methods out of the decision-making core. Judgments are made entirely through graph theory (undirected connected components, detected via a Tarjan-style traversal over a graph whose edges are added in both directions), set operations (n-gram Jaccard / overlap coefficient), and a deterministic scoring function based on the count of independent sources — so that a human can trace the entire decision path. This lets us explain "why this conclusion was reached" without going through any probabilistic internal state. (To be clear: being deterministic does not guarantee that the output is true. It is a design choice that guarantees the explainability of the decision process, not the correctness of its content.)
 
 `Sieve-Core` is the core engine that applies the design philosophy of "Sieve-AI"—a "sieve of set theory" inspired by the Sieve of Eratosthenes—to the more general domain of text and data processing.
 
@@ -44,7 +44,7 @@ Instead of relying on black-box AI judgments, it provides a way to detect and re
 ## 💎 Core Virtues
 
 1. **Auditability, with no black box**
-   * Every conclusion can be traced by a human through explicit graph structure (SCC) and explicit thresholds (Jaccard / Sigmoid). This design fits domains such as plagiarism detection or fact-checking where the reasoning behind a judgment needs to be explainable (this MVP has only been validated on limited data sets, so any legal or institutional use would require separate validation).
+   * Every conclusion can be traced by a human through explicit graph structure (connected components) and explicit thresholds (Jaccard / Sigmoid). This design fits domains such as plagiarism detection or fact-checking where the reasoning behind a judgment needs to be explainable (this MVP has only been validated on limited data sets, so any legal or institutional use would require separate validation).
 2. **Zero-Dependencies as a constraint on the core**
    * The core engine (`sieve_core.py`) is self-contained using only Python's standard library, with no external dependencies. This gives it strong portability and removes, for the core itself, any risk from third-party package vulnerabilities. This does not restrict you from injecting external libraries (e.g. an embedding model) into `density_fn` / `similarity_fn` — see the plugin examples below.
 3. **Determinism as a controller**
@@ -64,7 +64,7 @@ Instead of relying on black-box AI judgments, it provides a way to detect and re
       │
       ▼
 ┌────────────────────────────────────────┐
-│ 2. Tarjan SCC graph reduction           │  ← deterministic strongly-connected-components collapse of copy-paste / bot loops
+│ 2. Connected-components reduction       │  ← deterministic collapse of copy-paste / bot loops into one group
 └────────────────────────────────────────┘
       │
       ▼
@@ -111,12 +111,12 @@ There are three main classes:
 | Class | Role |
 | :--- | :--- |
 | `GenericItemInput` | One unit of input data (ID, author, independent attribute, content) |
-| `SieveCoreEngine` | The 4-stage pipeline body: density filter → SCC reduction → cluster merge → confidence scoring |
+| `SieveCoreEngine` | The 4-stage pipeline body: density filter → connected-component reduction → cluster merge → confidence scoring |
 | `FactClusterOutput` | The extraction result (representative text, item count, independent source count, confidence) |
 
-For the internal implementation details (Tarjan SCC, average-linkage Jaccard / overlap coefficient, the sigmoid confidence function, etc.), read `sieve_core.py` directly. Its behavior is backed by two regression test suites:
+For the internal implementation details (the connected-component detection via a Tarjan-style traversal over an undirected graph, average-linkage Jaccard / overlap coefficient, the sigmoid confidence function, etc.), read `sieve_core.py` directly. Its behavior is backed by two regression test suites:
 
-* `test_sieve_core.py` — behavior of the core engine in isolation (duplicate-ID detection, density filter, SCC reduction, chaining mitigation, empty input, etc.)
+* `test_sieve_core.py` — behavior of the core engine in isolation (duplicate-ID detection, density filter, connected-component reduction, chaining mitigation, empty input, etc.)
 * `test_multi_domain.py` — cross-domain validation across three qualitatively different domains: short-form SNS text, source code, and long-form news articles
 
 ```bash
@@ -251,7 +251,7 @@ The current MVP (v1.0) prioritizes deterministic precision and uses $O(N^2)$ pai
 | Parameter | Default | Purpose |
 | :--- | :--- | :--- |
 | `density_threshold` | `0.35` | Minimum information density. Filters out smokescreen jargon and emotional noise. |
-| `exact_sim_threshold` | `0.65` | The similarity threshold above which Tarjan SCC treats two items as strongly connected (bot copy-paste / astroturfing). |
+| `exact_sim_threshold` | `0.65` | The similarity threshold above which two items are treated as connected (bot copy-paste / astroturfing). |
 | `jaccard_merge_threshold` | `0.15` | The threshold at which average-linkage merges clusters to account for paraphrasing/variation. |
 | `sigmoid_alpha` | `3.0` | The steepness of the confidence curve's response to an increase in independent role count. |
 | `sigmoid_k0` | `1.5` | The inflection point: the independent role count at which confidence crosses 50%. |
