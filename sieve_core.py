@@ -202,13 +202,12 @@ class SieveCoreEngine:
                 self._ngram_extract(a), self._ngram_extract(b)
             )
 
-        # 1. Density score filter
-        filtered_items = [item for item in items if density_fn(item.content) >= self.density_threshold]
-
-        # Explicitly detect duplicate item_ids (to preserve full auditability).
+        # 0. Input validation: duplicate item_ids are rejected BEFORE any
+        # filtering, so duplicates among items that would later be filtered
+        # out are also caught (previously they slipped through).
         seen_ids: Set[str] = set()
         duplicate_ids: Set[str] = set()
-        for item in filtered_items:
+        for item in items:
             if item.item_id in seen_ids:
                 duplicate_ids.add(item.item_id)
             seen_ids.add(item.item_id)
@@ -218,34 +217,60 @@ class SieveCoreEngine:
                 " item_id must be unique across all input items."
             )
 
+        # 1. Density score filter. Dropped items are recorded as
+        # (item_id, reason) pairs in input appearance order, with a closed
+        # vocabulary reason and no item content.
+        filtered_items: List[GenericItemInput] = []
+        dropped: List[Dict[str, str]] = []
+        for item in items:
+            if density_fn(item.content) >= self.density_threshold:
+                filtered_items.append(item)
+            else:
+                dropped.append({"item_id": item.item_id, "reason": "low_density"})
+
         item_map = {item.item_id: item for item in filtered_items}
         node_ids = list(item_map.keys())
+        # Input appearance order is the global tie-breaking order.
+        order_index: Dict[str, int] = {nid: pos for pos, nid in enumerate(node_ids)}
 
         # 2. Build a directed graph & collapse copy-paste/bot-amplification cycles via Tarjan SCC
-        adj_list: Dict[str, Set[str]] = {nid: set() for nid in node_ids}
+        adj_list: Dict[str, List[str]] = {nid: [] for nid in node_ids}
 
         for i in range(len(node_ids)):
             for j in range(i + 1, len(node_ids)):
                 id_a, id_b = node_ids[i], node_ids[j]
                 sim = similarity_fn(item_map[id_a].content, item_map[id_b].content)
                 if sim >= self.exact_sim_threshold:
-                    adj_list[id_a].add(id_b)
-                    adj_list[id_b].add(id_a)
+                    adj_list[id_a].append(id_b)
+                    adj_list[id_b].append(id_a)
 
-        scc_clusters = self._tarjan_scc(node_ids, adj_list)
+        # Enumerate neighbors in input appearance order so the traversal (and
+        # therefore the detected-component order and result assembly) is fully
+        # deterministic across runs and PYTHONHASHSEED values.
+        ordered_adj_list: Dict[str, List[str]] = {
+            nid: sorted(neighbors, key=order_index.__getitem__)
+            for nid, neighbors in adj_list.items()
+        }
 
-        # 3. Deterministic cluster merging (average-linkage, to mitigate chaining)
-        clusters: List[Set[str]] = [set(scc) for scc in scc_clusters]
+        scc_clusters = self._tarjan_scc(node_ids, ordered_adj_list)
+
+        # 3. Deterministic cluster merging (average-linkage, to mitigate chaining).
+        # Each cluster is kept sorted in input appearance order, and the cluster
+        # list itself is ordered by each cluster's earliest input position.
+        clusters: List[List[str]] = [
+            sorted(scc, key=lambda nid: order_index[nid]) for scc in scc_clusters
+        ]
+        clusters.sort(key=lambda cl: order_index[cl[0]])
         merged = True
         while merged:
             merged = False
-            new_clusters: List[Set[str]] = []
+            new_clusters: List[List[str]] = []
             visited = [False] * len(clusters)
 
             for i in range(len(clusters)):
                 if visited[i]:
                     continue
-                current_cluster = set(clusters[i])
+                current_cluster = list(clusters[i])
                 for j in range(i + 1, len(clusters)):
                     if visited[j]:
                         continue
@@ -256,7 +281,10 @@ class SieveCoreEngine:
                     )
                     avg_sim = total_sim / (len(current_cluster) * len(clusters[j]))
                     if avg_sim >= self.jaccard_merge_threshold:
-                        current_cluster.update(clusters[j])
+                        current_cluster = sorted(
+                            current_cluster + clusters[j],
+                            key=order_index.__getitem__,
+                        )
                         visited[j] = True
                         merged = True
 
@@ -267,6 +295,8 @@ class SieveCoreEngine:
         # 4. Sigmoid confidence scoring and result assembly
         results: List[FactClusterOutput] = []
         for idx, cluster in enumerate(clusters):
+            # cluster is already sorted by input appearance order: item_ids and
+            # the representative tie-break below follow that order.
             cluster_items = [item_map[nid] for nid in cluster]
             unique_roles = {item.author_role for item in cluster_items}
             k_roles = len(unique_roles)
@@ -284,12 +314,16 @@ class SieveCoreEngine:
                 )
             )
 
+        # Deterministic result order: confidence descending; ties keep facts
+        # ordered by their earliest input appearance (stable sort).
+        results.sort(key=lambda x: order_index[x.item_ids[0]])
         results.sort(key=lambda x: x.confidence_score, reverse=True)
 
         stats = {
             "raw_input_count": len(items),
             "filtered_input_count": len(filtered_items),
             "extracted_facts_count": len(results),
+            "dropped": dropped,
         }
 
         return results, stats
