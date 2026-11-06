@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-11-07
+
+### Changed
+- **Packaging metadata migrated to the PEP 639 (SPDX) form**:
+  `project.license` is now the plain SPDX expression `"MIT"` with
+  `license-files = ["LICENSE"]`, and the deprecated
+  `License :: OSI Approved :: MIT License` classifier was removed (the
+  SPDX expression carries the licensing information). The `build-system`
+  requirement is now `setuptools>=77.0`, the first release that
+  understands PEP 639. This eliminates both setuptools deprecation
+  warnings emitted since the 1.1.0 builds (`project.license` as a TOML
+  table / License classifiers), whose announced removal deadline is
+  2027-02-18. The packaging form mirrors sieve-referee.
+- **Version bumped to 1.1.1**. A packaging-metadata-only release: no
+  runtime code changes, the whole existing suite passes unchanged. PyPI
+  artifacts are immutable, so the corrected metadata ships as a new
+  version rather than a rebuild of 1.1.0.
+
 ## [1.1.0] - 2026-11-07
 
 ### Added

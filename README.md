@@ -1,4 +1,4 @@
-# Sieve-Core (v1.1.0-MVP)
+# Sieve-Core (v1.1.1-MVP)
 
 **English | [日本語](./README.ja.md)**
 
