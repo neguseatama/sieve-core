@@ -26,6 +26,9 @@ class GenericItemInput:
         author_role (str): the poster's independent attribute (e.g. "citizen", "media", "official")
         content (str): the text content to analyze
         payload (Any): arbitrary metadata (optional)
+        references (Optional[List[str]]|Optional[Tuple[str, ...]]): item_ids this
+            item cites, replies to, or reposts from (optional). Used only in
+            the "references" relation mode; never read in the default mode.
     """
     def __init__(
         self,
@@ -33,13 +36,15 @@ class GenericItemInput:
         author_id: str,
         author_role: str,
         content: str,
-        payload: Any = None
+        payload: Any = None,
+        references: Any = None
     ):
         self.item_id = item_id
         self.author_id = author_id
         self.author_role = author_role
         self.content = content
         self.payload = payload
+        self.references = references
 
 
 class FactClusterOutput:
@@ -52,6 +57,11 @@ class FactClusterOutput:
         item_ids (List[str]): the input item IDs aggregated into this fact
         independent_sources_count (int): number of independent verifying sources (roles)
         confidence_score (float): confidence score computed by the sigmoid function (0.0-1.0)
+        cycles (Optional[List[List[str]]]): size >= 2 strongly connected
+            components (citation cycles) contained in this fact, in input
+            appearance order; None in the default "similarity" mode.
+        cites (Optional[List[str]]): fact_ids of other facts this fact's
+            items cite, ascending; None in the default "similarity" mode.
     """
     def __init__(
         self,
@@ -59,13 +69,17 @@ class FactClusterOutput:
         representative_content: str,
         item_ids: List[str],
         independent_sources_count: int,
-        confidence_score: float
+        confidence_score: float,
+        cycles: Any = None,
+        cites: Any = None
     ):
         self.fact_id = fact_id
         self.representative_content = representative_content
         self.item_ids = item_ids
         self.independent_sources_count = independent_sources_count
         self.confidence_score = confidence_score
+        self.cycles = cycles
+        self.cites = cites
 
 
 class SieveCoreEngine:
@@ -190,11 +204,18 @@ class SieveCoreEngine:
         self,
         items: List[GenericItemInput],
         density_fn: Callable[[str], float] = None,
-        similarity_fn: Callable[[str, str], float] = None
+        similarity_fn: Callable[[str, str], float] = None,
+        relation_mode: str = "similarity"
     ) -> Tuple[List[FactClusterOutput], Dict[str, Any]]:
         """
         Run the 4-stage pipeline to extract and score facts.
         """
+        if relation_mode not in ("similarity", "references"):
+            raise ValueError(
+                f"Unknown relation_mode: {relation_mode!r}. "
+                'Allowed values are "similarity" (default) and "references".'
+            )
+        references_mode = relation_mode == "references"
         if density_fn is None:
             density_fn = self._default_density_fn
         if similarity_fn is None:
@@ -233,16 +254,75 @@ class SieveCoreEngine:
         # Input appearance order is the global tie-breaking order.
         order_index: Dict[str, int] = {nid: pos for pos, nid in enumerate(node_ids)}
 
-        # 2. Build a directed graph & collapse copy-paste/bot-amplification cycles via Tarjan SCC
+        # 2. Build edges. In the default "similarity" mode the edge set is
+        # symmetric (an edge is added in both directions), so the detected
+        # SCCs coincide with undirected connected components. In the
+        # "references" mode the edges are directed citation edges built
+        # from the items' reference lists, so Tarjan SCC works in its
+        # strict sense; similarity is not consulted for edges in this mode.
         adj_list: Dict[str, List[str]] = {nid: [] for nid in node_ids}
 
-        for i in range(len(node_ids)):
-            for j in range(i + 1, len(node_ids)):
-                id_a, id_b = node_ids[i], node_ids[j]
-                sim = similarity_fn(item_map[id_a].content, item_map[id_b].content)
-                if sim >= self.exact_sim_threshold:
-                    adj_list[id_a].append(id_b)
-                    adj_list[id_b].append(id_a)
+        if references_mode:
+            # 2a. Fail-closed validation of the reference relations on the
+            # raw input (surviving and density-filtered items alike).
+            # Messages carry only item IDs, never item content.
+            known_ids = {item.item_id for item in items}
+            for item in items:
+                refs = item.references
+                if refs is None:
+                    continue
+                if not isinstance(refs, (list, tuple)) or not all(
+                    isinstance(ref, str) for ref in refs
+                ):
+                    raise ValueError(
+                        f"Invalid references for item '{item.item_id}':"
+                        " references must be None or a list/tuple of"
+                        " item_id strings."
+                    )
+                unknown = sorted({ref for ref in refs if ref not in known_ids})
+                if unknown:
+                    raise ValueError(
+                        f"Unknown reference item_id(s) for item"
+                        f" '{item.item_id}': {unknown}. Each reference must"
+                        " name an item_id that exists in the input."
+                    )
+
+            # 2b. Directed edges A -> B ("A cites B") from the normalized
+            # reference lists (duplicates collapse to their first
+            # occurrence). Self references are ignored and counted;
+            # references targeting density-filtered items are not edges and
+            # are counted; references issued by filtered items are not
+            # edges either (their source is not a node of the graph).
+            dropped_ids = {entry["item_id"] for entry in dropped}
+            reference_edges: List[Tuple[str, str]] = []
+            self_references_ignored = 0
+            references_dropped = 0
+            for item in items:
+                refs = item.references
+                if refs is None:
+                    continue
+                seen_refs: Set[str] = set()
+                for ref in refs:
+                    if ref in seen_refs:
+                        continue
+                    seen_refs.add(ref)
+                    if ref == item.item_id:
+                        self_references_ignored += 1
+                    elif ref in dropped_ids:
+                        references_dropped += 1
+                    elif item.item_id not in dropped_ids:
+                        reference_edges.append((item.item_id, ref))
+
+            for src, dst in reference_edges:
+                adj_list[src].append(dst)
+        else:
+            for i in range(len(node_ids)):
+                for j in range(i + 1, len(node_ids)):
+                    id_a, id_b = node_ids[i], node_ids[j]
+                    sim = similarity_fn(item_map[id_a].content, item_map[id_b].content)
+                    if sim >= self.exact_sim_threshold:
+                        adj_list[id_a].append(id_b)
+                        adj_list[id_b].append(id_a)
 
         # Enumerate neighbors in input appearance order so the traversal (and
         # therefore the detected-component order and result assembly) is fully
@@ -293,6 +373,38 @@ class SieveCoreEngine:
             clusters = new_clusters
 
         # 4. Sigmoid confidence scoring and result assembly
+        if references_mode:
+            # cycles: the size >= 2 SCCs contained in each fact, listed in
+            # input appearance order (inside each SCC and across SCCs).
+            ordered_sccs = [
+                sorted(scc, key=lambda nid: order_index[nid])
+                for scc in scc_clusters
+            ]
+            ordered_sccs.sort(key=lambda cl: order_index[cl[0]])
+            cluster_pos: Dict[str, int] = {}
+            for pos, cluster in enumerate(clusters):
+                for nid in cluster:
+                    cluster_pos[nid] = pos
+            cycles_by_pos: Dict[int, List[List[str]]] = {}
+            for scc in ordered_sccs:
+                if len(scc) >= 2:
+                    cycles_by_pos.setdefault(cluster_pos[scc[0]], []).append(scc)
+            # cites: the citation flow between merged facts (the
+            # condensation of the reference graph), expressed with the
+            # final fact IDs. Citations inside a merged fact are excluded;
+            # facts linked by citations in both directions stay two facts.
+            fact_id_by_pos = {
+                pos: f"FACT-{pos+1:03d}" for pos in range(len(clusters))
+            }
+            cites_by_pos: Dict[int, Set[str]] = {
+                pos: set() for pos in range(len(clusters))
+            }
+            for src, dst in reference_edges:
+                src_pos = cluster_pos[src]
+                dst_pos = cluster_pos[dst]
+                if src_pos != dst_pos:
+                    cites_by_pos[src_pos].add(fact_id_by_pos[dst_pos])
+
         results: List[FactClusterOutput] = []
         for idx, cluster in enumerate(clusters):
             # cluster is already sorted by input appearance order: item_ids and
@@ -311,6 +423,13 @@ class SieveCoreEngine:
                     item_ids=[item.item_id for item in cluster_items],
                     independent_sources_count=k_roles,
                     confidence_score=round(confidence, 4),
+                    cycles=(
+                        cycles_by_pos.get(idx, [])
+                        if references_mode else None
+                    ),
+                    cites=(
+                        sorted(cites_by_pos[idx]) if references_mode else None
+                    ),
                 )
             )
 
@@ -319,11 +438,30 @@ class SieveCoreEngine:
         results.sort(key=lambda x: order_index[x.item_ids[0]])
         results.sort(key=lambda x: x.confidence_score, reverse=True)
 
+        if references_mode:
+            scc_count_value = len(scc_clusters)
+            cycle_count_value = sum(
+                1 for scc in scc_clusters if len(scc) >= 2
+            )
+            refs_dropped_value = references_dropped
+            self_refs_value = self_references_ignored
+        else:
+            # The default mode has no directed relations, so the four new
+            # stats keys are always present and zero.
+            scc_count_value = 0
+            cycle_count_value = 0
+            refs_dropped_value = 0
+            self_refs_value = 0
+
         stats = {
             "raw_input_count": len(items),
             "filtered_input_count": len(filtered_items),
             "extracted_facts_count": len(results),
             "dropped": dropped,
+            "scc_count": scc_count_value,
+            "cycle_count": cycle_count_value,
+            "references_dropped": refs_dropped_value,
+            "self_references_ignored": self_refs_value,
         }
 
         return results, stats
