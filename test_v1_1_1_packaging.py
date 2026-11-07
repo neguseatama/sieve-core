@@ -77,9 +77,12 @@ class TestV1_1_1PackagingSPDXLicense(unittest.TestCase):
         )
 
     def test_version_and_changelog_consistent(self):
+        # The version pin follows each release lane (1.1.1 -> 1.2.0 in the
+        # references/SCC lane); the CHANGELOG must document the current
+        # release section.
         text = _read(PYPROJECT)
-        self.assertRegex(text, r'(?m)^version\s*=\s*"1\.1\.1"')
-        self.assertIn("## [1.1.1]", _read(CHANGELOG))
+        self.assertRegex(text, r'(?m)^version\s*=\s*"1\.2\.0"')
+        self.assertIn("## [1.2.0]", _read(CHANGELOG))
 
 
 if __name__ == "__main__":

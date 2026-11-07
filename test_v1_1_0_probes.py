@@ -321,13 +321,14 @@ class TestCoT08Classification(unittest.TestCase):
 
 class TestCoT09VersionChangelog(unittest.TestCase):
     def test_co_t09_version_and_changelog_consistent(self):
-        """CO-T09: pyproject version is 1.1.1 and CHANGELOG.md documents it.
+        """CO-T09: pyproject version is 1.2.0 and CHANGELOG.md documents it.
 
         (Version pin follows each release lane: 1.1.0 -> 1.1.1 in the
-        packaging/SPDX lane. The CHANGELOG keeps documenting [1.1.0] too.)
+        packaging/SPDX lane, and -> 1.2.0 in the references/SCC lane.
+        The CHANGELOG keeps documenting [1.1.0] too.)
         """
         pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-        self.assertIn('version = "1.1.1"', pyproject)
+        self.assertIn('version = "1.2.0"', pyproject)
         changelog_path = REPO_ROOT / "CHANGELOG.md"
         self.assertTrue(changelog_path.exists(), "CHANGELOG.md must exist")
         changelog = changelog_path.read_text(encoding="utf-8")

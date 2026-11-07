@@ -9,7 +9,10 @@ Description:
     and spin control driven by AI (generative AI and black-box judgments),
     deliberately avoids using AI and instead extracts only verified facts using
     a fully deterministic mathematical model and graph theory
-    (Tarjan SCC / average-linkage Jaccard).
+    (Tarjan SCC / average-linkage Jaccard). Tarjan's SCC runs over a symmetric
+    similarity-edge graph in the default "similarity" mode — where the SCCs
+    therefore coincide with undirected connected components — and over a
+    directed citation-edge graph in the "references" mode.
 """
 
 import math
@@ -85,6 +88,15 @@ class FactClusterOutput:
 class SieveCoreEngine:
     """
     A fully deterministic fact-checking / extraction core engine.
+
+    Two relation modes share the same 4-stage pipeline: the default
+    "similarity" mode builds symmetric similarity edges (as since v1.0.0,
+    so the detected SCCs equal undirected connected components), while the
+    "references" mode builds directed citation edges A -> B ("A cites B")
+    from the items' optional `references` lists, collapses mutually citing
+    cycles (strongly connected components) into single facts, and reports
+    the cycles and the citation flow between merged facts (`cycles` and
+    `cites` on FactClusterOutput, plus four new `stats` keys).
     """
     def __init__(
         self,
@@ -149,9 +161,16 @@ class SieveCoreEngine:
 
     def _tarjan_scc(self, nodes: List[str], adj_list: Dict[str, Set[str]]) -> List[List[str]]:
         """
-        Tarjan's strongly-connected-components (SCC) algorithm, implemented
+        Tarjan's strongly connected components (SCC) algorithm, implemented
         iteratively (an explicit call-stack simulation) instead of recursively,
         to avoid hitting Python's recursion limit on deep input graphs.
+
+        Terminology follows the relation mode: in the default "similarity"
+        mode the edge set is symmetric (every edge is added in both
+        directions), so the detected SCCs coincide with undirected connected
+        components. In the "references" mode the edges are directed citation
+        edges (A -> B means "A cites B"), so the detected SCCs are strongly
+        connected components in the strict sense.
         """
         index = 0
         stack: List[str] = []
@@ -209,6 +228,20 @@ class SieveCoreEngine:
     ) -> Tuple[List[FactClusterOutput], Dict[str, Any]]:
         """
         Run the 4-stage pipeline to extract and score facts.
+
+        Args:
+            items: the input items.
+            density_fn: optional density evaluator (default: unique-char
+                ratio).
+            similarity_fn: optional similarity evaluator (default: 2-gram
+                Jaccard). Feeds the similarity edges in "similarity" mode
+                and the average-linkage merge in both modes.
+            relation_mode: "similarity" (default) builds symmetric
+                similarity edges exactly as before (the items' `references`
+                are never read); "references" builds directed edges
+                A -> B ("A cites B") from the items' `references` lists,
+                and reports `cycles` / `cites`. Any other value raises
+                ValueError.
         """
         if relation_mode not in ("similarity", "references"):
             raise ValueError(

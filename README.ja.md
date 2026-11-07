@@ -1,4 +1,4 @@
-# Sieve-Core (v1.1.1-MVP)
+# Sieve-Core (v1.2.0-MVP)
 
 **[English](./README.md) | 日本語**
 
@@ -40,7 +40,7 @@ LLMを直接使って「これは真実か」を判定させる実装は多く�
 
 
 
-そこで本プロジェクトでは、LLMを含む確率的な手法を判定の主体から外し、グラフ理論(無向グラフの連結成分分解。エッジを両方向に張ったグラフに Tarjan 型の探索を適用したもの)と集合演算(n-gram Jaccard/Overlap係数)、そして独立ソース数に基づく決定論的なスコアリングだけで、判定過程を人間が最後まで追跡できる形にすることを優先しました。これにより「なぜこの結論になったか」を、確率的な内部状態を経由せずに説明できます(ただし、決定論的であることは、判定結果が真実であることを保証するものではありません。これはあくまで判定過程の説明可能性を担保する設計判断です)。
+そこで本プロジェクトでは、LLMを含む確率的な手法を判定の主体から外し、グラフ理論(既定の"similarity"モードでは無向グラフの連結成分分解。エッジを両方向に張ったグラフに Tarjan 型の探索を適用したもの。"references"モードでは引用という有向エッジの強連結成分分解)と集合演算(n-gram Jaccard/Overlap係数)、そして独立ソース数に基づく決定論的なスコアリングだけで、判定過程を人間が最後まで追跡できる形にすることを優先しました。これにより「なぜこの結論になったか」を、確率的な内部状態を経由せずに説明できます(ただし、決定論的であることは、判定結果が真実であることを保証するものではありません。これはあくまで判定過程の説明可能性を担保する設計判断です)。
 
 
 
@@ -81,7 +81,7 @@ LLMを直接使って「これは真実か」を判定させる実装は多く�
       │
       ▼
 ┌────────────────────────────────────────┐
-│ 2. 連結成分グラフ縮約                   │  ← 確定的にコピペ/Bot拡散を同一グループへ縮約
+│ 2. グラフ縮約                           │  ← similarityモード: 連結成分。referencesモード: 引用エッジの Tarjan SCC
 └────────────────────────────────────────┘
       │
       ▼
@@ -129,10 +129,10 @@ for fact in results:
 | クラス | 役割 |
 | :--- | :--- |
 | `GenericItemInput` | 投入する1件のデータ（ID・投稿者・独立属性・本文） |
-| `SieveCoreEngine` | 密度フィルタ → 連結成分縮約 → クラスタ統合 → 確信度スコアリングの4段パイプライン本体 |
+| `SieveCoreEngine` | 密度フィルタ → グラフ縮約（similarityモード: 連結成分 / referencesモード: Tarjan SCC）→ クラスタ統合 → 確信度スコアリングの4段パイプライン本体 |
 | `FactClusterOutput` | 抽出結果（代表テキスト・件数・独立ソース数・確信度） |
 
-詳細な内部実装（無向グラフの連結成分探索（Tarjan 型 SCC 実装）・平均連結法Jaccard／Overlap係数・シグモイド確信度関数など）は `sieve_core.py` を直接参照してください。挙動は以下2つの回帰テストで担保されています。
+詳細な内部実装（Tarjan 型 SCC 探索："similarity"モードでは対称な類似度エッジ、"references"モードでは有向の引用エッジを対象。平均連結法Jaccard／Overlap係数・シグモイド確信度関数など）は `sieve_core.py` を直接参照してください。挙動は以下2つの回帰テストで担保されています。
 
 * `test_sieve_core.py` — コアエンジン単体の挙動（重複ID検出、密度フィルタ、連結成分縮約、chaining対策、空入力等）
 * `test_multi_domain.py` — SNS短文・ソースコード・長文ニュースという性質の異なる3ドメインを横断した実証テスト
@@ -140,6 +140,43 @@ for fact in results:
 ```bash
 python3 -m unittest test_sieve_core.py test_multi_domain.py -v
 ```
+
+---
+
+## 📎 関係モード: 類似度エッジと有向の引用（Relation Modes）
+
+Sieve-Core は同じ決定論的な4段パイプラインを、`process()` の `relation_mode` 引数で選べる 2 つの関係モードで実行します:
+
+* **`"similarity"`（既定）** — エッジを文面の類似度から作る（両方向に張る）。従来どおりコピペ／Bot拡散のグループを縮約する。既存の呼び出し元は何も変える必要がなく、項目に `references` を与えてもこのモードでは読まれません。
+* **`"references"`** — 各項目が、どの項目を引用・返信・再投稿しているか（`GenericItemInput` の `references`）を宣言できます。エンジンは有向エッジ `A -> B`（A が B を引用）を作り、相互に引用し合う循環（強連結成分）を 1 つの事実へ縮約し、各事実に 2 つの新しいフィールドを持たせます: `cycles`（その事実に含まれる大きさ 2 以上の SCC・入力の出現順）と `cites`（その事実の項目が引用している他の事実の fact_id・昇順）。このモードでエッジは宣言された関係のみから作られ（`exact_sim_threshold` は使いません）、平均連結法による統合は検出された SCC を単位として類似度で従来どおり行われます。不正な関係は `ValueError` で拒否されます（存在しない ID は昇順で列挙・項目の本文は載せません）。自己参照は無視して数え、`stats` は `scc_count`・`cycle_count`・`references_dropped`・`self_references_ignored` を追加します。
+
+最小の例（相互に引用し合う 2 項目と、それを引用する外部の 1 項目）:
+
+```python
+from sieve_core import GenericItemInput, SieveCoreEngine
+
+items = [
+    GenericItemInput("post", "bot_a", "bot",
+                     "Bridge inspection closes the old pier road until Friday.",
+                     references=["reply"]),
+    GenericItemInput("reply", "bot_b", "bot",
+                     "PSA: bridge inspection closes the old pier road until Friday.",
+                     references=["post"]),
+    GenericItemInput("news", "media_x", "media",
+                     "Harbor ferry adds two night crossings this month.",
+                     references=["post"]),
+]
+
+engine = SieveCoreEngine()
+results, stats = engine.process(items, relation_mode="references")
+
+for fact in results:
+    print(fact.fact_id, fact.item_ids, fact.cycles, fact.cites)
+# FACT-001 ['post', 'reply'] [['post', 'reply']] []
+# FACT-002 ['news'] [] ['FACT-001']
+```
+
+post と reply は互いに引用し合うため 1 つの事実へ縮約され、その `cycles` に引用の循環が載ります。news はその事実を引用するため、news の事実は `cites=["FACT-001"]` を持ちます（`stats` は `scc_count=2`、`cycle_count=1` を報告）。`relation_mode` を指定しなければ、同じ入力は v1.1.1 と完全に同じ出力（`cycles`／`cites` は `None`）になります。
 
 ---
 
@@ -263,7 +300,7 @@ N=1,000→2,000で処理時間がおよそ4倍になっており、$O(N^2)$ の�
 | パラメータ名 | 初期値 | 目的・説明 |
 | :--- | :--- | :--- |
 | `density_threshold` | `0.35` | 情報密度の下限。専門用語の煙幕や感情的ノイズを排除。 |
-| `exact_sim_threshold` | `0.65` | この類似度以上の 2 項目を連結（Botコピペ・アストロターフィング）とみなす縮約閾値。 |
+| `exact_sim_threshold` | `0.65` | この類似度以上の 2 項目を連結（Botコピペ・アストロターフィング）とみなす縮約閾値。`"references"` 関係モードではエッジが宣言された関係から作られるため使用しません。 |
 | `jaccard_merge_threshold` | `0.15` | 表記揺れ（揺らぎ）を平均連結法でクラスタリング統合する閾値。 |
 | `sigmoid_alpha` | `3.0` | 独立ロール数増加に対する確信度上昇の感度（傾き）。 |
 | `sigmoid_k0` | `1.5` | 確信度 50% となる独立ロール数の変曲点。 |
